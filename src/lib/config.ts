@@ -1,6 +1,6 @@
 export const appConfig = {
   name: "Tesl.on",
-  description: "Intelligence for the electrified age. Optimize energy operations.",
+  description: "Route agent workloads by energy cost, not just latency.",
   url: "https://tesl.on",
   navItems: [
     { title: "Dashboard", href: "/dashboard", icon: "dashboard" },
