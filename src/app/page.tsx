@@ -1,386 +1,492 @@
 import Link from "next/link";
 import { appConfig } from "@/lib/config";
 
-const ACCENT = "#7be870"; // electric green for renewable
-const ACCENT_WARM = "#f0a050"; // amber for mixed
-const ACCENT_BAD = "#e87070"; // red for coal-heavy
-const BG = "#0a0e0a";
+/* ────────────────────────────────────────────────────────────────────────
+   TESL.ON — THE BLUEPRINT ARCHETYPE
+   The whole page is an electrical-engineering schematic sheet: grid paper,
+   drafting title block, right-angle traces, reference numbers, a BOM table.
+   The SCHEMATIC DIAGRAM is the hero — not a headline.
+   ──────────────────────────────────────────────────────────────────────── */
 
-interface Region {
-  id: string;
+const BG = "#0c1a2b"; // deep blueprint blue
+const INK = "#cfe6ff"; // cyan/white drafting line-work
+const CYAN = "#5cc8ff";
+const GREEN = "#7be870"; // energy-green "clean"
+const AMBER = "#e0b050";
+const RED = "#e87070";
+
+/* Blueprint grid overlay — fine lines via repeating-linear-gradient */
+const blueprintGrid: React.CSSProperties = {
+  backgroundColor: BG,
+  backgroundImage: `
+    repeating-linear-gradient(0deg, rgba(92,200,255,0.07) 0px, rgba(92,200,255,0.07) 1px, transparent 1px, transparent 28px),
+    repeating-linear-gradient(90deg, rgba(92,200,255,0.07) 0px, rgba(92,200,255,0.07) 1px, transparent 1px, transparent 28px),
+    repeating-linear-gradient(0deg, rgba(92,200,255,0.04) 0px, rgba(92,200,255,0.04) 1px, transparent 1px, transparent 7px),
+    repeating-linear-gradient(90deg, rgba(92,200,255,0.04) 0px, rgba(92,200,255,0.04) 1px, transparent 1px, transparent 7px)
+  `,
+};
+
+/* Routing destinations for the schematic */
+interface RegionNode {
+  ref: string;
   name: string;
-  lat: number; // 0-100 (0 = north)
-  lon: number; // 0-100 (0 = west)
-  kind: "green" | "mixed" | "bad";
+  source: string;
+  status: "clean" | "mixed" | "dirty";
+  y: number; // vertical position in the schematic (SVG units)
 }
-
-const regions: Region[] = [
-  { id: "is-rkv-1", name: "Reykjavik", lat: 12, lon: 32, kind: "green" },
-  { id: "no-oslo", name: "Oslo", lat: 18, lon: 48, kind: "green" },
-  { id: "us-pdx", name: "Pacific Northwest", lat: 28, lon: 12, kind: "green" },
-  { id: "ca-mtl", name: "Montreal", lat: 24, lon: 25, kind: "green" },
-  { id: "eu-fra", name: "Frankfurt", lat: 28, lon: 50, kind: "mixed" },
-  { id: "ap-sin", name: "Singapore", lat: 60, lon: 82, kind: "mixed" },
-  { id: "au-syd", name: "Sydney", lat: 78, lon: 92, kind: "mixed" },
-  { id: "us-east-1", name: "Virginia", lat: 32, lon: 22, kind: "bad" },
-  { id: "ap-east", name: "Hong Kong", lat: 48, lon: 80, kind: "bad" },
-  { id: "in-mum", name: "Mumbai", lat: 50, lon: 65, kind: "bad" },
+const destinations: RegionNode[] = [
+  { ref: "N1", name: "REYKJAVIK", source: "geothermal", status: "clean", y: 18 },
+  { ref: "N2", name: "OSLO", source: "hydro", status: "clean", y: 38 },
+  { ref: "N3", name: "MUMBAI", source: "mixed grid", status: "mixed", y: 58 },
+  { ref: "N4", name: "VIRGINIA", source: "coal", status: "dirty", y: 78 },
 ];
 
-function regionColor(kind: Region["kind"]): string {
-  if (kind === "green") return ACCENT;
-  if (kind === "mixed") return ACCENT_WARM;
-  return ACCENT_BAD;
+function statusColor(s: RegionNode["status"]) {
+  if (s === "clean") return GREEN;
+  if (s === "mixed") return AMBER;
+  return RED;
+}
+function statusGlyph(s: RegionNode["status"]) {
+  if (s === "clean") return "✓";
+  if (s === "mixed") return "~";
+  return "✗";
 }
 
-// 24-hour carbon schedule. Lower numbers = lower carbon intensity (greener grid).
-const hourly = [
-  { h: 0, intensity: 30, workload: 90 },
-  { h: 1, intensity: 28, workload: 88 },
-  { h: 2, intensity: 26, workload: 85 },
-  { h: 3, intensity: 26, workload: 82 },
-  { h: 4, intensity: 30, workload: 70 },
-  { h: 5, intensity: 38, workload: 50 },
-  { h: 6, intensity: 55, workload: 25 },
-  { h: 7, intensity: 68, workload: 15 },
-  { h: 8, intensity: 72, workload: 12 },
-  { h: 9, intensity: 60, workload: 35 },
-  { h: 10, intensity: 45, workload: 70 },
-  { h: 11, intensity: 32, workload: 92 },
-  { h: 12, intensity: 26, workload: 96 },
-  { h: 13, intensity: 24, workload: 95 },
-  { h: 14, intensity: 25, workload: 90 },
-  { h: 15, intensity: 35, workload: 75 },
-  { h: 16, intensity: 50, workload: 50 },
-  { h: 17, intensity: 65, workload: 28 },
-  { h: 18, intensity: 75, workload: 18 },
-  { h: 19, intensity: 78, workload: 12 },
-  { h: 20, intensity: 70, workload: 15 },
-  { h: 21, intensity: 58, workload: 38 },
-  { h: 22, intensity: 45, workload: 70 },
-  { h: 23, intensity: 38, workload: 82 },
+/* 24h carbon-aware schedule — intensity low = clean trough; workload snaps to troughs */
+const schedule = [
+  { h: 0, gco2: 30, load: 88 },
+  { h: 1, gco2: 27, load: 92 },
+  { h: 2, gco2: 24, load: 95 },
+  { h: 3, gco2: 25, load: 90 },
+  { h: 4, gco2: 31, load: 70 },
+  { h: 5, gco2: 42, load: 44 },
+  { h: 6, gco2: 58, load: 22 },
+  { h: 7, gco2: 70, load: 12 },
+  { h: 8, gco2: 74, load: 10 },
+  { h: 9, gco2: 60, load: 30 },
+  { h: 10, gco2: 44, load: 64 },
+  { h: 11, gco2: 30, load: 90 },
+  { h: 12, gco2: 24, load: 96 },
+  { h: 13, gco2: 23, load: 95 },
+  { h: 14, gco2: 26, load: 88 },
+  { h: 15, gco2: 36, load: 70 },
+  { h: 16, gco2: 52, load: 42 },
+  { h: 17, gco2: 66, load: 24 },
+  { h: 18, gco2: 76, load: 14 },
+  { h: 19, gco2: 78, load: 10 },
+  { h: 20, gco2: 68, load: 16 },
+  { h: 21, gco2: 54, load: 36 },
+  { h: 22, gco2: 42, load: 66 },
+  { h: 23, gco2: 35, load: 82 },
+];
+
+/* BOM / specs rows */
+const bom = [
+  { item: "01", spec: "Carbon per query", val: "47% lower", note: "vs latency-only" },
+  { item: "02", spec: "Energy provenance", val: "100% tracked", note: "per request" },
+  { item: "03", spec: "Renewable regions", val: "04 active", note: "geo · hydro" },
+  { item: "04", spec: "Routing overhead", val: "+80 ms", note: "p50 add-on" },
 ];
 
 export default function LandingPage() {
   return (
-    <div className="flex min-h-screen flex-col" style={{ backgroundColor: BG, color: "#dcebd8" }}>
-      {/* Thin accent line */}
-      <div className="h-[2px] w-full" style={{ backgroundColor: ACCENT }} />
+    <div
+      className="min-h-screen font-mono"
+      style={{ ...blueprintGrid, color: INK }}
+    >
+      {/* Outer drafting border frame */}
+      <div className="min-h-screen p-2 sm:p-4">
+        <div
+          className="relative min-h-[calc(100vh-1rem)] border-2"
+          style={{ borderColor: `${CYAN}66` }}
+        >
+          {/* corner tick marks (drafting registration) */}
+          <Corner pos="top-0 left-0" />
+          <Corner pos="top-0 right-0" />
+          <Corner pos="bottom-0 left-0" />
+          <Corner pos="bottom-0 right-0" />
 
-      {/* Nav */}
-      <header className="border-b border-white/5">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-7 w-7 items-center justify-center rounded border" style={{ borderColor: `${ACCENT}55`, backgroundColor: `${ACCENT}11` }}>
-              {/* Lightning bolt */}
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill={ACCENT}>
-                <path d="M13 2L4.09 12.97l7.91.03L9 22l8.91-10.97-7.91-.03L13 2z" />
+          {/* ══ HEADER STRIP ══ city + drawing id, thin-ruled */}
+          <header
+            className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2"
+            style={{ borderColor: `${CYAN}44` }}
+          >
+            <div className="flex items-baseline gap-3">
+              <span className="text-sm font-bold tracking-[0.25em] uppercase" style={{ color: INK }}>
+                TESL<span style={{ color: GREEN }}>·</span>ON
+              </span>
+              <span className="text-[10px] uppercase tracking-[0.3em]" style={{ color: CYAN }}>
+                Reykjavik 🇮🇸 · 64°N · 100% renewable grid
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em]">
+              <Link
+                href="/login"
+                className="border px-2.5 py-1 transition-colors hover:bg-white/5"
+                style={{ borderColor: `${CYAN}55`, color: INK }}
+              >
+                ▭ sign in
+              </Link>
+              <Link
+                href="/signup"
+                className="border px-2.5 py-1 font-bold transition-colors hover:opacity-90"
+                style={{ borderColor: GREEN, color: BG, backgroundColor: GREEN }}
+              >
+                ▣ get started
+              </Link>
+            </div>
+          </header>
+
+          {/* ══════════════════════════════════════════════════════════════
+              HERO = SCHEMATIC DIAGRAM — energy routing as a circuit drawing.
+              Request source (left) → right-angle traces → region nodes.
+              Active trace glows green → Reykjavik.
+              ══════════════════════════════════════════════════════════════ */}
+          <section className="px-3 py-5 sm:px-6">
+            <SheetLabel n="FIG.1" text="ENERGY-AWARE ROUTING SCHEMATIC" />
+            <div className="relative w-full" style={{ aspectRatio: "16 / 9", minHeight: 300 }}>
+              <svg
+                viewBox="0 0 160 90"
+                className="absolute inset-0 h-full w-full"
+                preserveAspectRatio="xMidYMid meet"
+              >
+                {/* SOURCE node R1 — the request */}
+                <g>
+                  <rect x="6" y="40" width="26" height="12" fill="none" stroke={CYAN} strokeWidth="0.5" />
+                  <text x="19" y="46" textAnchor="middle" fontSize="3.4" fill={INK} fontFamily="monospace">
+                    REQUEST
+                  </text>
+                  <text x="19" y="49.5" textAnchor="middle" fontSize="2.4" fill={CYAN} fontFamily="monospace">
+                    in: GPT-4 · 8K tok
+                  </text>
+                  <text x="6" y="38" fontSize="2.6" fill={GREEN} fontFamily="monospace">R1</text>
+                </g>
+
+                {/* ROUTER junction J1 (decision point) */}
+                <g>
+                  <line x1="32" y1="46" x2="50" y2="46" stroke={CYAN} strokeWidth="0.5" />
+                  <rect x="50" y="38" width="16" height="16" fill="none" stroke={CYAN} strokeWidth="0.5" />
+                  <text x="58" y="45" textAnchor="middle" fontSize="2.6" fill={INK} fontFamily="monospace">
+                    ROUTE
+                  </text>
+                  <text x="58" y="48.5" textAnchor="middle" fontSize="2.2" fill={CYAN} fontFamily="monospace">
+                    by gCO₂
+                  </text>
+                  <text x="50" y="36" fontSize="2.6" fill={GREEN} fontFamily="monospace">J1</text>
+                  <circle cx="58" cy="46" r="0.9" fill={GREEN} />
+                </g>
+
+                {/* Right-angle traces from J1 (x=66) to each region node (x=116) */}
+                {destinations.map((d) => {
+                  const c = statusColor(d.status);
+                  const active = d.status === "clean" && d.ref === "N1";
+                  const branchX = 84; // vertical bus location
+                  return (
+                    <g key={d.ref}>
+                      {/* horizontal out of router to bus */}
+                      <polyline
+                        points={`66,46 ${branchX},46 ${branchX},${d.y} 110,${d.y}`}
+                        fill="none"
+                        stroke={active ? GREEN : `${c}`}
+                        strokeWidth={active ? 0.7 : 0.35}
+                        strokeOpacity={active ? 1 : 0.55}
+                        strokeDasharray={active ? "none" : "1.4 1.2"}
+                        style={active ? { filter: `drop-shadow(0 0 2px ${GREEN})` } : undefined}
+                      />
+                      {/* junction dot on the bus */}
+                      <circle cx={branchX} cy={d.y} r="0.8" fill={active ? GREEN : `${c}`} fillOpacity={active ? 1 : 0.6} />
+                      {/* node box */}
+                      <rect
+                        x="110"
+                        y={d.y - 5}
+                        width="40"
+                        height="10"
+                        fill={active ? `${GREEN}1a` : "none"}
+                        stroke={active ? GREEN : c}
+                        strokeWidth={active ? 0.6 : 0.4}
+                        strokeOpacity={active ? 1 : 0.7}
+                      />
+                      <text x="113" y={d.y - 1.4} fontSize="2.9" fill={active ? GREEN : INK} fontFamily="monospace">
+                        {d.name}
+                      </text>
+                      <text x="113" y={d.y + 2.6} fontSize="2.2" fill={c} fontFamily="monospace" fillOpacity={0.85}>
+                        {d.source} {statusGlyph(d.status)}
+                      </text>
+                      <text x="150" y={d.y - 6} textAnchor="end" fontSize="2.4" fill={GREEN} fontFamily="monospace">
+                        {d.ref}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* callout on the chosen path */}
+                <g>
+                  <line x1="100" y1="18" x2="100" y2="10" stroke={GREEN} strokeWidth="0.35" />
+                  <line x1="100" y1="10" x2="148" y2="10" stroke={GREEN} strokeWidth="0.35" />
+                  <text x="148" y="8" textAnchor="end" fontSize="2.6" fill={GREEN} fontFamily="monospace">
+                    SELECTED ▸ 340ms · 0.62 kg CO₂ saved · 100% geothermal
+                  </text>
+                </g>
               </svg>
             </div>
-            <div className="flex items-baseline gap-2">
-              <span className="font-serif text-base text-white tracking-wide">
-                Tesl<span style={{ color: ACCENT, textShadow: `0 0 8px ${ACCENT}88` }}>.</span>on
-              </span>
-              <span className="hidden sm:inline text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-                Reykjavik
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="hidden sm:inline text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-              tesl.on
-            </span>
-            <Link href="/login" className="text-sm text-slate-500 hover:text-slate-300 transition-colors">
-              Sign in
-            </Link>
-            <Link
-              href="/signup"
-              className="text-sm border rounded px-3 py-1.5 transition-colors hover:bg-white/5"
-              style={{ borderColor: `${ACCENT}55`, color: ACCENT }}
+
+            {/* drafting note block — tagline as a hand-annotated note */}
+            <div
+              className="mt-4 max-w-xl border-l-2 px-4 py-2"
+              style={{ borderColor: GREEN, backgroundColor: `${GREEN}0d` }}
             >
-              Get started
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      {/* Hero */}
-      <section className="mx-auto max-w-5xl px-4 pt-20 pb-12 text-center">
-        <h1
-          className="font-serif text-6xl sm:text-8xl text-white tracking-tight leading-[1.0]"
-          style={{ fontFamily: 'ui-serif, Georgia, serif' }}
-        >
-          Tesl<span style={{ color: ACCENT, textShadow: `0 0 24px ${ACCENT}66` }}>.</span>on
-        </h1>
-        <p className="mt-6 text-xl sm:text-2xl text-slate-300 font-serif italic max-w-2xl mx-auto leading-snug">
-          Route agent workloads by energy cost, not just latency.
-        </p>
-        <p className="mt-6 text-sm font-mono text-slate-500 tracking-wide">
-          From Reykjavik — where 100% of power runs renewable.
-        </p>
-      </section>
-
-      {/* Problem */}
-      <section className="mx-auto max-w-3xl px-4 pb-12 text-center">
-        <p className="text-xs font-mono uppercase tracking-[0.3em] text-slate-600 mb-3">
-          The problem
-        </p>
-        <p className="text-2xl font-serif text-white leading-snug">
-          AI workloads burn energy blind to where it comes from.
-        </p>
-      </section>
-
-      {/* World map */}
-      <section className="mx-auto max-w-5xl w-full px-4 pb-12">
-        <div className="rounded-lg border border-white/10 overflow-hidden" style={{ backgroundColor: "#0f140e" }}>
-          {/* Title bar */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/5" style={{ backgroundColor: "#0a0e0a" }}>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full animate-pulse" style={{ backgroundColor: ACCENT, boxShadow: `0 0 6px ${ACCENT}` }} />
-              <span className="text-xs font-mono uppercase tracking-widest text-slate-400">
-                Carbon-aware routing
+              <span className="text-[10px] uppercase tracking-[0.25em]" style={{ color: GREEN }}>
+                Note ▸
+              </span>{" "}
+              <span className="text-[12px]" style={{ color: INK }}>
+                energy-per-query treated as a first-class routing signal — route by{" "}
+                <span style={{ color: GREEN }}>energy cost</span>, not just latency.
               </span>
             </div>
-            <span className="text-[10px] font-mono text-slate-600 uppercase tracking-widest">
-              shifting traffic to green grids
-            </span>
-          </div>
+          </section>
 
-          <div className="relative w-full" style={{ paddingBottom: "50%" }}>
-            <svg
-              viewBox="0 0 100 50"
-              preserveAspectRatio="none"
-              className="absolute inset-0 w-full h-full"
+          {/* ══ SECONDARY SCHEMATIC ══ 24h carbon-aware schedule as a waveform */}
+          <section className="border-t px-3 py-5 sm:px-6" style={{ borderColor: `${CYAN}33` }}>
+            <SheetLabel n="FIG.2" text="CARBON-AWARE SCHEDULE · 24H PROFILE" />
+            <div
+              className="relative w-full border px-2 pt-3 pb-1"
+              style={{ borderColor: `${CYAN}33`, height: 200 }}
             >
-              {/* Latitude grid */}
-              {[10, 20, 30, 40].map((y) => (
-                <line key={`lat-${y}`} x1={0} y1={y * 0.5 + 5} x2={100} y2={y * 0.5 + 5} stroke="#1c2a1c" strokeWidth={0.1} />
-              ))}
-              {/* Longitude grid */}
-              {[20, 40, 60, 80].map((x) => (
-                <line key={`lon-${x}`} x1={x} y1={2} x2={x} y2={48} stroke="#1c2a1c" strokeWidth={0.1} />
-              ))}
-
-              {/* Animated traffic arcs from red → green */}
-              {[
-                { from: "us-east-1", to: "us-pdx" },
-                { from: "ap-east", to: "is-rkv-1" },
-                { from: "in-mum", to: "no-oslo" },
-              ].map(({ from, to }, i) => {
-                const f = regions.find((r) => r.id === from)!;
-                const t = regions.find((r) => r.id === to)!;
-                const fx = f.lon;
-                const fy = f.lat * 0.5;
-                const tx = t.lon;
-                const ty = t.lat * 0.5;
-                const mx = (fx + tx) / 2;
-                const my = Math.min(fy, ty) - 6;
-                return (
-                  <g key={`arc-${i}`}>
-                    <path
-                      d={`M ${fx} ${fy} Q ${mx} ${my} ${tx} ${ty}`}
-                      stroke={ACCENT}
-                      strokeWidth={0.3}
-                      fill="none"
-                      strokeDasharray="1.5 1"
-                      opacity={0.55}
-                    >
-                      <animate attributeName="stroke-dashoffset" from="0" to="-10" dur={`${2 + i * 0.5}s`} repeatCount="indefinite" />
-                    </path>
-                  </g>
-                );
-              })}
-
-              {/* Region dots */}
-              {regions.map((r) => {
-                const c = regionColor(r.kind);
-                const rad = r.kind === "green" ? 0.9 : 0.7;
-                return (
-                  <g key={r.id}>
-                    <circle cx={r.lon} cy={r.lat * 0.5} r={rad + 0.6} fill={c} opacity={0.2} />
-                    <circle cx={r.lon} cy={r.lat * 0.5} r={rad} fill={c} />
-                  </g>
-                );
-              })}
-            </svg>
-
-            {/* Region labels (HTML overlay for crispness) */}
-            <div className="absolute inset-0 pointer-events-none">
-              {regions.map((r) => (
-                <span
-                  key={`label-${r.id}`}
-                  className="absolute text-[8px] sm:text-[10px] font-mono whitespace-nowrap"
-                  style={{
-                    left: `${r.lon}%`,
-                    top: `${r.lat}%`,
-                    transform: "translate(-50%, 8px)",
-                    color: regionColor(r.kind),
-                    opacity: 0.85,
-                  }}
-                >
-                  {r.name}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Legend */}
-          <div className="px-4 py-3 border-t border-white/5 flex flex-wrap items-center justify-between gap-3 text-[10px] font-mono uppercase tracking-widest">
-            <span className="text-slate-500">grid carbon intensity by region</span>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: ACCENT, boxShadow: `0 0 4px ${ACCENT}` }} />
-                <span className="text-slate-500">renewable</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: ACCENT_WARM }} />
-                <span className="text-slate-500">mixed</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="h-2 w-2 rounded-full" style={{ backgroundColor: ACCENT_BAD }} />
-                <span className="text-slate-500">coal-heavy</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Routing decision panel */}
-      <section className="mx-auto max-w-4xl w-full px-4 pb-12">
-        <div className="rounded-lg border border-white/10 overflow-hidden" style={{ backgroundColor: "#08100a" }}>
-          <div className="flex items-center justify-between px-4 py-2 border-b border-white/5" style={{ backgroundColor: "#000" }}>
-            <div className="flex items-center gap-1.5">
-              <div className="h-2.5 w-2.5 rounded-full bg-red-500/60" />
-              <div className="h-2.5 w-2.5 rounded-full bg-yellow-500/60" />
-              <div className="h-2.5 w-2.5 rounded-full bg-green-500/60" />
-            </div>
-            <span className="text-[10px] font-mono text-slate-600 uppercase tracking-widest">
-              routing decision
-            </span>
-          </div>
-          <pre className="text-xs sm:text-sm font-mono p-5 leading-relaxed overflow-x-auto text-slate-300">
-            <span className="text-slate-500">Request:</span> <span className="text-white">GPT-4 inference, 8K tokens</span>{"\n"}
-            {"\n"}
-            <span style={{ color: ACCENT_BAD }}>Latency-only routing:</span>{"  "}us-east-1     <span className="text-slate-500">(340ms, 0.8 kWh,</span> <span style={{ color: ACCENT_BAD }}>coal+gas</span><span className="text-slate-500">)</span>{"\n"}
-            <span style={{ color: ACCENT }}>Tesl.on routing:</span>{"        "}is-rkv-1      <span className="text-slate-500">(420ms, 0.8 kWh,</span> <span style={{ color: ACCENT }}>100% geothermal</span><span className="text-slate-500">)</span>{"\n"}
-            {"\n"}
-            <span className="text-white">Carbon saved:</span> <span style={{ color: ACCENT }}>0.62 kg CO&#8322;</span>{"\n"}
-          </pre>
-        </div>
-      </section>
-
-      {/* 24h carbon-aware schedule */}
-      <section className="border-t border-white/5">
-        <div className="mx-auto max-w-5xl px-4 py-16">
-          <p className="text-xs font-mono uppercase tracking-[0.3em] text-slate-600 mb-3 text-center">
-            Carbon-aware schedule · 24h
-          </p>
-          <h2 className="text-center text-2xl sm:text-3xl font-serif text-white mb-10">
-            Workloads concentrate during solar &amp; wind peaks.
-          </h2>
-
-          <div className="rounded-lg border border-white/10 p-6" style={{ backgroundColor: "#0f140e" }}>
-            <div className="flex items-end justify-between gap-[2px] h-40 sm:h-48">
-              {hourly.map((slot) => {
-                const greenness = 1 - slot.intensity / 100; // 0 to 1
-                // interpolate red→amber→green
-                const color =
-                  slot.intensity < 35
-                    ? ACCENT
-                    : slot.intensity < 60
-                    ? ACCENT_WARM
-                    : ACCENT_BAD;
-                return (
-                  <div key={slot.h} className="flex-1 flex flex-col items-center gap-1">
-                    <div
-                      className="w-full rounded-t"
-                      style={{
-                        height: `${slot.workload}%`,
-                        backgroundColor: color,
-                        opacity: 0.55 + greenness * 0.45,
-                        boxShadow: slot.intensity < 35 ? `0 0 8px ${color}55` : "none",
-                      }}
+              <svg
+                viewBox="0 0 240 90"
+                preserveAspectRatio="none"
+                className="absolute inset-x-2 top-3 bottom-1 h-[calc(100%-1rem)] w-[calc(100%-1rem)]"
+              >
+                {/* horizontal reference rules */}
+                {[0, 1, 2, 3].map((i) => (
+                  <line
+                    key={i}
+                    x1="0"
+                    y1={i * 22.5}
+                    x2="240"
+                    y2={i * 22.5}
+                    stroke={CYAN}
+                    strokeOpacity="0.12"
+                    strokeWidth="0.3"
+                  />
+                ))}
+                {/* carbon-intensity waveform (the trough line) */}
+                <polyline
+                  points={schedule
+                    .map((s, i) => `${(i / 23) * 240},${(s.gco2 / 100) * 90}`)
+                    .join(" ")}
+                  fill="none"
+                  stroke={CYAN}
+                  strokeWidth="0.6"
+                  strokeOpacity="0.7"
+                  strokeDasharray="2 1.5"
+                />
+                {/* workload blocks snapped to low-carbon troughs */}
+                {schedule.map((s, i) => {
+                  const clean = s.gco2 < 34;
+                  const col = clean ? GREEN : s.gco2 < 58 ? AMBER : RED;
+                  const w = 240 / 24;
+                  const h = (s.load / 100) * 88;
+                  return (
+                    <rect
+                      key={s.h}
+                      x={i * w + 0.6}
+                      y={90 - h}
+                      width={w - 1.2}
+                      height={h}
+                      fill={col}
+                      fillOpacity={clean ? 0.55 : 0.22}
+                      stroke={col}
+                      strokeWidth="0.25"
+                      strokeOpacity={clean ? 0.9 : 0.4}
                     />
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </svg>
             </div>
-            {/* Hour axis */}
-            <div className="mt-2 flex justify-between text-[9px] font-mono text-slate-600 px-[1px]">
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[9px] uppercase tracking-[0.2em]" style={{ color: CYAN }}>
+              <span>bar = workload scheduled · dashed = grid carbon intensity</span>
+              <div className="flex items-center gap-3">
+                <Legend c={GREEN} label="clean trough" />
+                <Legend c={AMBER} label="medium" />
+                <Legend c={RED} label="peak" />
+              </div>
+            </div>
+            <div className="mt-1 flex justify-between text-[9px]" style={{ color: `${CYAN}99` }}>
               {[0, 6, 12, 18, 23].map((h) => (
-                <span key={h} style={{ marginLeft: h === 0 ? 0 : "auto", marginRight: h === 23 ? 0 : "auto" }}>
+                <span key={h} className="tabular-nums">
                   {h.toString().padStart(2, "0")}:00
                 </span>
               ))}
             </div>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono uppercase tracking-widest text-slate-500">
-              <span>bar height = workload scheduled · color = grid carbon</span>
-              <div className="flex items-center gap-3">
-                <span style={{ color: ACCENT }}>low</span>
-                <span style={{ color: ACCENT_WARM }}>medium</span>
-                <span style={{ color: ACCENT_BAD }}>high</span>
+          </section>
+
+          {/* ══ BOM / SPECS TABLE ══ ruled like a blueprint bill-of-materials */}
+          <section className="border-t px-3 py-5 sm:px-6" style={{ borderColor: `${CYAN}33` }}>
+            <SheetLabel n="TBL.1" text="BILL OF MATERIALS — PERFORMANCE SPEC" />
+            <div className="border" style={{ borderColor: `${CYAN}44` }}>
+              <div
+                className="grid grid-cols-[2.5rem_1fr_auto] gap-px border-b text-[9px] uppercase tracking-[0.2em] sm:grid-cols-[3rem_1fr_8rem_10rem]"
+                style={{ borderColor: `${CYAN}44`, color: CYAN }}
+              >
+                <Cell head>#</Cell>
+                <Cell head>Spec</Cell>
+                <Cell head>Value</Cell>
+                <Cell head className="hidden sm:block">Note</Cell>
+              </div>
+              {bom.map((r, i) => (
+                <div
+                  key={r.item}
+                  className="grid grid-cols-[2.5rem_1fr_auto] gap-px text-[12px] sm:grid-cols-[3rem_1fr_8rem_10rem]"
+                  style={{
+                    borderTop: i === 0 ? "none" : `1px solid ${CYAN}22`,
+                  }}
+                >
+                  <Cell className="tabular-nums" style={{ color: `${CYAN}aa` }}>{r.item}</Cell>
+                  <Cell style={{ color: INK }}>{r.spec}</Cell>
+                  <Cell className="tabular-nums font-bold" style={{ color: GREEN }}>{r.val}</Cell>
+                  <Cell className="hidden text-[10px] sm:block" style={{ color: `${CYAN}99` }}>{r.note}</Cell>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* ══ TITLE BLOCK ══ a real drafting corner stamp, bottom-right ══ */}
+          <section className="px-3 pb-5 sm:px-6">
+            <div className="flex justify-end">
+              <div
+                className="w-full max-w-sm border text-[10px]"
+                style={{ borderColor: CYAN, backgroundColor: `${CYAN}08` }}
+              >
+                <TBRow label="DWG" value="TESL.ON" valueColor={INK} top />
+                <TBRow label="TITLE" value="Energy-aware agent routing" />
+                <TBRow label="LOC" value="Reykjavik · 64°N" />
+                <TBRow label="REV" value="2026.1" />
+                <div className="grid grid-cols-2 border-t" style={{ borderColor: `${CYAN}55` }}>
+                  <div className="border-r px-3 py-2" style={{ borderColor: `${CYAN}55` }}>
+                    <div className="text-[8px] uppercase tracking-[0.2em]" style={{ color: CYAN }}>Scale</div>
+                    <div style={{ color: INK }}>NTS</div>
+                  </div>
+                  <div className="px-3 py-2">
+                    <div className="text-[8px] uppercase tracking-[0.2em]" style={{ color: CYAN }}>Sheet</div>
+                    <div style={{ color: INK }}>1 OF 1</div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </section>
 
-      {/* Stats */}
-      <section className="border-t border-white/5">
-        <div className="mx-auto max-w-5xl px-4 py-20">
-          <div className="grid sm:grid-cols-2 gap-12 text-center">
-            <div>
-              <p className="font-serif text-5xl text-white tabular-nums" style={{ color: ACCENT }}>47%</p>
-              <p className="mt-3 text-xs font-mono uppercase tracking-widest text-slate-500">
-                lower carbon per query
-              </p>
-            </div>
-            <div>
-              <p className="font-serif text-5xl text-white tabular-nums" style={{ color: ACCENT }}>100%</p>
-              <p className="mt-3 text-xs font-mono uppercase tracking-widest text-slate-500">
-                energy provenance tracked
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="border-t border-white/5">
-        <div className="mx-auto max-w-5xl px-4 py-20 text-center">
-          <Link
-            href="/signup"
-            className="inline-flex items-center gap-2 border-2 rounded px-8 py-4 text-lg font-medium transition-colors hover:bg-white/5"
-            style={{ borderColor: ACCENT, color: ACCENT }}
+          {/* ══ FOOTER ══ drafting strip ══ */}
+          <footer
+            className="flex flex-col gap-2 border-t px-4 py-3 text-[10px] sm:flex-row sm:items-center sm:justify-between"
+            style={{ borderColor: `${CYAN}44` }}
           >
-            Route your first workload
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
-          </Link>
+            <div className="flex items-center gap-2 uppercase tracking-[0.25em]">
+              <span style={{ color: GREEN }}>{appConfig.name}</span>
+              <span style={{ color: `${CYAN}66` }}>·</span>
+              <span style={{ color: INK }}>Reykjavik</span>
+              <span style={{ color: `${CYAN}66` }}>·</span>
+              <span style={{ color: `${CYAN}aa` }}>tesl.on</span>
+            </div>
+            <a
+              href="https://abduljaleel.xyz/aletheia/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="self-start border px-2.5 py-1 uppercase tracking-[0.2em] transition-colors hover:bg-white/5 sm:self-auto"
+              style={{ borderColor: `${CYAN}55`, color: INK }}
+            >
+              Part of the Aletheia stack ↗
+            </a>
+          </footer>
         </div>
-      </section>
+      </div>
+    </div>
+  );
+}
 
-      {/* Footer */}
-      <footer className="border-t border-white/5 mt-auto">
-        <div className="mx-auto flex flex-col sm:flex-row gap-3 sm:gap-0 h-auto sm:h-16 max-w-6xl items-center justify-between px-4 py-4 sm:py-0">
-          <div className="flex items-center gap-3 text-xs text-slate-600 font-mono">
-            <span style={{ color: ACCENT }}>{appConfig.name}</span>
-            <span>·</span>
-            <span>Reykjavik</span>
-            <span>·</span>
-            <span>tesl.on</span>
-          </div>
-          <a
-            href="https://abduljaleel.xyz/aletheia/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] font-mono uppercase tracking-widest text-slate-500 hover:text-white border border-white/10 rounded px-3 py-1.5 transition-colors hover:border-white/30"
-          >
-            Part of the Aletheia stack &#8599;
-          </a>
-        </div>
-      </footer>
+/* ── Drafting registration tick at a frame corner ── */
+function Corner({ pos }: { pos: string }) {
+  return (
+    <div className={`pointer-events-none absolute ${pos} h-3 w-3`} style={{ margin: -1 }}>
+      <div className="absolute left-0 top-0 h-3 w-px" style={{ backgroundColor: CYAN }} />
+      <div className="absolute left-0 top-0 h-px w-3" style={{ backgroundColor: CYAN }} />
+    </div>
+  );
+}
+
+/* ── Figure / table label, drafting style ── */
+function SheetLabel({ n, text }: { n: string; text: string }) {
+  return (
+    <div className="mb-3 flex items-center gap-2">
+      <span
+        className="border px-1.5 py-0.5 text-[9px] font-bold tracking-[0.2em]"
+        style={{ borderColor: GREEN, color: GREEN }}
+      >
+        {n}
+      </span>
+      <span className="text-[10px] uppercase tracking-[0.3em]" style={{ color: CYAN }}>
+        {text}
+      </span>
+      <span className="h-px flex-1" style={{ backgroundColor: `${CYAN}33` }} />
+    </div>
+  );
+}
+
+function Legend({ c, label }: { c: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="inline-block h-2 w-2" style={{ backgroundColor: c }} />
+      {label}
+    </span>
+  );
+}
+
+function Cell({
+  children,
+  head,
+  className,
+  style,
+}: {
+  children: React.ReactNode;
+  head?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div
+      className={`px-3 ${head ? "py-1.5" : "py-2.5"} ${className ?? ""}`}
+      style={style}
+    >
+      {children}
+    </div>
+  );
+}
+
+function TBRow({
+  label,
+  value,
+  valueColor,
+  top,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+  top?: boolean;
+}) {
+  return (
+    <div
+      className="grid grid-cols-[3.5rem_1fr]"
+      style={{ borderTop: top ? "none" : `1px solid ${CYAN}33` }}
+    >
+      <div
+        className="border-r px-3 py-1.5 text-[8px] uppercase tracking-[0.2em]"
+        style={{ borderColor: `${CYAN}55`, color: CYAN }}
+      >
+        {label}
+      </div>
+      <div className="px-3 py-1.5 font-bold tracking-wide" style={{ color: valueColor ?? GREEN }}>
+        {value}
+      </div>
     </div>
   );
 }
