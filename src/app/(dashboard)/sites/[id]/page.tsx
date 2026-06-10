@@ -1,24 +1,132 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  sites,
-  recommendations,
-  getForecast,
-  type Site,
-} from "@/lib/data/energy";
+  getSiteDetail,
+  acknowledgeAlert,
+  type SiteDetail,
+} from "@/lib/data/api";
+import type { ForecastDay, AlertSeverity } from "@/lib/data/energy";
+
+function getSeverityVariant(
+  severity: AlertSeverity
+): "default" | "secondary" | "destructive" | "outline" {
+  switch (severity) {
+    case "critical":
+      return "destructive";
+    case "warning":
+      return "outline";
+    case "info":
+      return "secondary";
+  }
+}
 
 export default function SiteDetailPage() {
   const params = useParams();
   const siteId = params.id as string;
-  const site = sites.find((s) => s.id === siteId);
-  const siteRecs = recommendations.filter((r) => r.siteId === siteId);
-  const forecast = getForecast(siteId);
 
-  if (!site) {
+  const [detail, setDetail] = useState<SiteDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [ackingId, setAckingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const d = await getSiteDetail(siteId);
+        if (!cancelled) setDetail(d);
+      } catch (e) {
+        if (!cancelled)
+          setError(e instanceof Error ? e.message : "Failed to load site");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [siteId]);
+
+  const forecast: ForecastDay[] = useMemo(() => {
+    if (!detail || detail.site.consumption24h <= 0) return [];
+    const dailyBase = detail.site.consumption24h;
+    const costPer = detail.site.cost24h / detail.site.consumption24h;
+    return Array.from({ length: 7 }, (_, i) => {
+      const variance = 0.9 + Math.random() * 0.2;
+      const consumption = Math.round(dailyBase * variance);
+      const d = new Date(Date.now() + (i + 1) * 24 * 60 * 60 * 1000);
+      return {
+        date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        consumption,
+        cost: Math.round(consumption * costPer * 100) / 100,
+      };
+    });
+  }, [detail]);
+
+  const handleAcknowledge = async (alertId: string) => {
+    setAckingId(alertId);
+    try {
+      await acknowledgeAlert(alertId);
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              alerts: prev.alerts.map((a) =>
+                a.id === alertId ? { ...a, acknowledged: true } : a
+              ),
+            }
+          : prev
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to acknowledge alert");
+    } finally {
+      setAckingId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <Skeleton className="h-9 w-72 mb-2" />
+          <Skeleton className="h-4 w-48" />
+        </div>
+        <div className="grid gap-4 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="pb-2">
+                <Skeleton className="h-4 w-24" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-28" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold tracking-tight">Site</h1>
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  if (!detail) {
     return (
       <div className="space-y-6">
         <h1 className="text-3xl font-bold tracking-tight">Site Not Found</h1>
@@ -29,7 +137,8 @@ export default function SiteDetailPage() {
     );
   }
 
-  const maxHourly = Math.max(...site.hourlyConsumption);
+  const { site, recommendations: siteRecs, alerts, benchmarks } = detail;
+  const maxHourly = Math.max(1, ...site.hourlyConsumption);
 
   return (
     <div className="space-y-6">
@@ -95,6 +204,8 @@ export default function SiteDetailPage() {
             Optimize ({siteRecs.length})
           </TabsTrigger>
           <TabsTrigger value="forecast">Forecast</TabsTrigger>
+          <TabsTrigger value="alerts">Alerts ({alerts.length})</TabsTrigger>
+          <TabsTrigger value="benchmarks">Benchmarks</TabsTrigger>
         </TabsList>
 
         {/* Monitor: hourly consumption bars + source breakdown */}
@@ -104,27 +215,34 @@ export default function SiteDetailPage() {
               <CardTitle>Hourly Consumption (24h)</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex items-end gap-1 h-48">
-                {site.hourlyConsumption.map((val, i) => (
-                  <div
-                    key={i}
-                    className="flex-1 flex flex-col items-center gap-0.5"
-                  >
+              {site.consumption24h === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No consumption data in the last 24 hours. Import data from the
+                  Import page.
+                </p>
+              ) : (
+                <div className="flex items-end gap-1 h-48">
+                  {site.hourlyConsumption.map((val, i) => (
                     <div
-                      className="w-full bg-primary rounded-t"
-                      style={{
-                        height: `${(val / maxHourly) * 100}%`,
-                        minHeight: "2px",
-                      }}
-                    />
-                    {i % 4 === 0 && (
-                      <span className="text-[10px] text-muted-foreground">
-                        {i.toString().padStart(2, "0")}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
+                      key={i}
+                      className="flex-1 flex flex-col items-center gap-0.5"
+                    >
+                      <div
+                        className="w-full bg-primary rounded-t"
+                        style={{
+                          height: `${(val / maxHourly) * 100}%`,
+                          minHeight: "2px",
+                        }}
+                      />
+                      {i % 4 === 0 && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {i.toString().padStart(2, "0")}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -233,27 +351,173 @@ export default function SiteDetailPage() {
               <CardTitle>7-Day Forecast</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                <div className="grid grid-cols-3 text-sm font-medium text-muted-foreground pb-2 border-b">
-                  <span>Date</span>
-                  <span className="text-right">Consumption</span>
-                  <span className="text-right">Cost</span>
-                </div>
-                {forecast.map((day) => (
-                  <div
-                    key={day.date}
-                    className="grid grid-cols-3 text-sm py-2 border-b border-dashed last:border-0"
-                  >
-                    <span className="font-medium">{day.date}</span>
-                    <span className="text-right font-mono">
-                      {day.consumption.toLocaleString()} kWh
-                    </span>
-                    <span className="text-right font-mono">
-                      ${day.cost.toLocaleString()}
-                    </span>
+              {forecast.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Not enough consumption data to build a forecast yet.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 text-sm font-medium text-muted-foreground pb-2 border-b">
+                    <span>Date</span>
+                    <span className="text-right">Consumption</span>
+                    <span className="text-right">Cost</span>
                   </div>
-                ))}
-              </div>
+                  {forecast.map((day) => (
+                    <div
+                      key={day.date}
+                      className="grid grid-cols-3 text-sm py-2 border-b border-dashed last:border-0"
+                    >
+                      <span className="font-medium">{day.date}</span>
+                      <span className="text-right font-mono">
+                        {day.consumption.toLocaleString()} kWh
+                      </span>
+                      <span className="text-right font-mono">
+                        ${day.cost.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Alerts: site alerts with acknowledge action */}
+        <TabsContent value="alerts" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Site Alerts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {alerts.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No alerts for this site
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {alerts.map((alert) => (
+                    <div
+                      key={alert.id}
+                      className="flex items-start justify-between gap-4 rounded-md border p-3"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={getSeverityVariant(alert.severity)}
+                            className="capitalize text-xs"
+                          >
+                            {alert.severity}
+                          </Badge>
+                          <Badge
+                            variant="secondary"
+                            className="capitalize text-xs"
+                          >
+                            {alert.type}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(alert.triggeredAt).toLocaleDateString(
+                              "en-US",
+                              {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              }
+                            )}
+                          </span>
+                        </div>
+                        <p className="text-sm">{alert.message}</p>
+                      </div>
+                      {alert.acknowledged ? (
+                        <Badge variant="secondary" className="text-xs shrink-0">
+                          Ack
+                        </Badge>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0"
+                          disabled={ackingId === alert.id}
+                          onClick={() => void handleAcknowledge(alert.id)}
+                        >
+                          {ackingId === alert.id ? "..." : "Acknowledge"}
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Benchmarks: peer comparison rows */}
+        <TabsContent value="benchmarks" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Benchmarks</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {benchmarks.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No benchmark data for this site yet
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {benchmarks.map((b) => (
+                    <div
+                      key={b.id}
+                      className="flex items-center justify-between rounded-md border p-3"
+                    >
+                      <div>
+                        <p className="text-sm font-medium">{b.period}</p>
+                        <p className="text-xs text-muted-foreground capitalize">
+                          {b.type}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">
+                            kWh/sqft
+                          </p>
+                          <p className="font-mono text-sm">{b.kwhPerSqft}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">$/kWh</p>
+                          <p className="font-mono text-sm font-bold">
+                            ${b.costPerKwh.toFixed(3)}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">
+                            Carbon kg/kWh
+                          </p>
+                          <p className="font-mono text-sm">
+                            {b.carbonIntensity.toFixed(3)}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">
+                            Peer %ile
+                          </p>
+                          <Badge
+                            variant={
+                              b.peerPercentile >= 70
+                                ? "default"
+                                : b.peerPercentile >= 40
+                                ? "secondary"
+                                : "outline"
+                            }
+                            className="text-xs"
+                          >
+                            {b.peerPercentile}th
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
