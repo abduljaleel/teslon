@@ -132,6 +132,12 @@ export default function SitesPage() {
                   onValueChange={(v: string | null) =>
                     setType((v as SiteType) ?? "")
                   }
+                  items={[
+                    { value: "office", label: "Office" },
+                    { value: "factory", label: "Factory" },
+                    { value: "datacenter", label: "Datacenter" },
+                    { value: "retail", label: "Retail" },
+                  ]}
                 >
                   <SelectTrigger id="site-type">
                     <SelectValue placeholder="Select type" />
@@ -197,6 +203,10 @@ export default function SitesPage() {
               {Array.from({ length: 4 }).map((_, i) => (
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
+            </div>
+          ) : error ? (
+            <div className="py-12 text-center text-muted-foreground text-sm">
+              Sites couldn&apos;t be loaded. Please try again.
             </div>
           ) : sites.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground text-sm">

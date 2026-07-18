@@ -188,7 +188,7 @@ async function fetchAllConsumption(
   }
 }
 
-const SOURCE_ORDER: SourceType[] = ["grid", "solar", "battery"];
+const SOURCE_ORDER: SourceType[] = ["grid", "solar", "battery", "generator"];
 
 interface SiteStats {
   consumption24h: number;
@@ -372,7 +372,13 @@ export async function createSite(input: NewSiteInput): Promise<Site> {
   return mapSiteRow(data as SiteRowDb, EMPTY_STATS);
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function getSiteDetail(id: string): Promise<SiteDetail | null> {
+  // Non-UUID route params (e.g. an old bookmark to "site-1") would make the
+  // uuid column throw 22P02; short-circuit so the page renders Not Found.
+  if (!UUID_RE.test(id)) return null;
   const { supabase } = await getCtx();
   const { data, error } = await supabase
     .from("sites")
@@ -535,6 +541,42 @@ export interface CsvParseResult {
 
 const SOURCE_VALUES = new Set(["grid", "solar", "battery", "generator"]);
 
+/**
+ * Minimal quote-aware CSV line splitter. Splits on commas only when not inside
+ * double quotes, and unwraps surrounding quotes (with "" treated as an escaped
+ * quote). Handles Excel-style values like cost "1,234.56" or locale timestamps
+ * "Jun 9, 2026 10:00" that a naive split(",") would mis-split.
+ */
+function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
 /** Parses pasted CSV text. Expected columns: timestamp, consumption_kwh, cost, source[, carbon_kg, interval_minutes]. */
 export function parseConsumptionCsv(text: string): CsvParseResult {
   const lines = text
@@ -549,7 +591,7 @@ export function parseConsumptionCsv(text: string): CsvParseResult {
   let costIsCents = false;
   let start = 0;
 
-  const headerCells = lines[0].split(",").map((c) => c.trim().toLowerCase());
+  const headerCells = splitCsvLine(lines[0]).map((c) => c.trim().toLowerCase());
   const looksLikeHeader = headerCells.some((c) =>
     /^(timestamp|date|time|datetime|kwh|consumption|consumption_kwh|energy|usage|cost|cost_cents|source|carbon|carbon_kg|co2|interval|interval_minutes)$/.test(
       c
@@ -578,7 +620,7 @@ export function parseConsumptionCsv(text: string): CsvParseResult {
   }
 
   for (let i = start; i < lines.length; i++) {
-    const cells = lines[i].split(",").map((c) => c.trim());
+    const cells = splitCsvLine(lines[i]).map((c) => c.trim());
     const lineNo = i + 1;
 
     const tsRaw = cells[idx.ts] ?? "";
@@ -596,7 +638,7 @@ export function parseConsumptionCsv(text: string): CsvParseResult {
 
     let costCents: number | null = null;
     if (idx.cost >= 0 && cells[idx.cost]) {
-      const cost = parseFloat(cells[idx.cost].replace(/^\$/, ""));
+      const cost = parseFloat(cells[idx.cost].replace(/[$,]/g, ""));
       if (isFinite(cost)) {
         costCents = Math.round(costIsCents ? cost : cost * 100);
       }

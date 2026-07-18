@@ -12,7 +12,20 @@ import {
   acknowledgeAlert,
   type SiteDetail,
 } from "@/lib/data/api";
-import type { ForecastDay, AlertSeverity } from "@/lib/data/energy";
+import type { ForecastDay, AlertSeverity, SourceType } from "@/lib/data/energy";
+
+function sourceBgClass(source: SourceType): string {
+  switch (source) {
+    case "grid":
+      return "bg-slate-500";
+    case "solar":
+      return "bg-amber-500";
+    case "battery":
+      return "bg-emerald-500";
+    case "generator":
+      return "bg-orange-500";
+  }
+}
 
 function getSeverityVariant(
   severity: AlertSeverity
@@ -56,10 +69,14 @@ export default function SiteDetailPage() {
 
   const forecast: ForecastDay[] = useMemo(() => {
     if (!detail || detail.site.consumption24h <= 0) return [];
-    const dailyBase = detail.site.consumption24h;
-    const costPer = detail.site.cost24h / detail.site.consumption24h;
+    const { site } = detail;
+    const dailyBase = site.consumption24h;
+    const costPer = site.cost24h / site.consumption24h;
+    // Deterministic per-site variance so the forecast is stable across reloads
+    // and unaffected by unrelated state changes (e.g. acknowledging an alert).
+    const seed = [...site.id].reduce((a, c) => a + c.charCodeAt(0), 0);
     return Array.from({ length: 7 }, (_, i) => {
-      const variance = 0.9 + Math.random() * 0.2;
+      const variance = 0.9 + (((seed + i * 37) % 100) / 100) * 0.2;
       const consumption = Math.round(dailyBase * variance);
       const d = new Date(Date.now() + (i + 1) * 24 * 60 * 60 * 1000);
       return {
@@ -167,7 +184,7 @@ export default function SiteDetailPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Today</CardTitle>
+            <CardTitle className="text-sm font-medium">Last 24h</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">
@@ -177,7 +194,7 @@ export default function SiteDetailPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Cost Today</CardTitle>
+            <CardTitle className="text-sm font-medium">Cost (24h)</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">
@@ -255,13 +272,7 @@ export default function SiteDetailPage() {
                 {site.sourceBreakdown.map((src) => (
                   <div
                     key={src.source}
-                    className={`${
-                      src.source === "grid"
-                        ? "bg-slate-500"
-                        : src.source === "solar"
-                        ? "bg-amber-500"
-                        : "bg-emerald-500"
-                    }`}
+                    className={sourceBgClass(src.source)}
                     style={{ width: `${src.pct}%` }}
                   />
                 ))}
@@ -270,13 +281,9 @@ export default function SiteDetailPage() {
                 {site.sourceBreakdown.map((src) => (
                   <div key={src.source} className="flex items-center gap-2">
                     <div
-                      className={`h-3 w-3 rounded-full ${
-                        src.source === "grid"
-                          ? "bg-slate-500"
-                          : src.source === "solar"
-                          ? "bg-amber-500"
-                          : "bg-emerald-500"
-                      }`}
+                      className={`h-3 w-3 rounded-full ${sourceBgClass(
+                        src.source
+                      )}`}
                     />
                     <span className="capitalize">
                       {src.source}: {src.pct}%

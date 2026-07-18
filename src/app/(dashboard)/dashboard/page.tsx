@@ -152,7 +152,13 @@ export default function DashboardPage() {
       {/* Per-site summary cards */}
       <div>
         <h2 className="text-lg font-semibold mb-3">Sites</h2>
-        {sites.length === 0 ? (
+        {error ? (
+          <Card>
+            <CardContent className="py-12 text-center text-sm text-muted-foreground">
+              Sites couldn&apos;t be loaded. Use Retry above to try again.
+            </CardContent>
+          </Card>
+        ) : sites.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center space-y-4">
               <p className="text-muted-foreground">

@@ -123,8 +123,23 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* --font-sans (Geist) is scoped to <body> by next/font. Geist first, then
+       degrade to a sans-serif generic — never the browser serif — if the
+       webfont fails to load. */
+    font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system,
+      "Segoe UI", sans-serif;
   }
   html {
     @apply font-sans;
   }
+}
+
+/* Landing page is the arctic "Clean Grid" field. Painting the document
+   background arctic (rather than the shadcn zinc) removes the gray band that
+   otherwise shows under the footer / on overscroll. Dashboard and auth pages
+   render their own full-height bg-background wrapper on top, so they are
+   unaffected. */
+html,
+body {
+  background-color: #05100c;
 }

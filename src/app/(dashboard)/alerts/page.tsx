@@ -200,6 +200,11 @@ export default function AlertsPage() {
                   onValueChange={(v: string | null) =>
                     setAlertType((v as AlertType) ?? "")
                   }
+                  items={[
+                    { value: "anomaly", label: "Anomaly" },
+                    { value: "threshold", label: "Threshold" },
+                    { value: "forecast", label: "Forecast" },
+                  ]}
                 >
                   <SelectTrigger id="alert-type">
                     <SelectValue placeholder="Select type" />
@@ -218,6 +223,11 @@ export default function AlertsPage() {
                   onValueChange={(v: string | null) =>
                     setAlertSeverity((v as AlertSeverity) ?? "")
                   }
+                  items={[
+                    { value: "info", label: "Info" },
+                    { value: "warning", label: "Warning" },
+                    { value: "critical", label: "Critical" },
+                  ]}
                 >
                   <SelectTrigger id="alert-severity">
                     <SelectValue placeholder="Select severity" />
@@ -265,6 +275,10 @@ export default function AlertsPage() {
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
+            </div>
+          ) : error ? (
+            <div className="py-12 text-center text-muted-foreground text-sm">
+              Alerts couldn&apos;t be loaded. Please try again.
             </div>
           ) : sorted.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground text-sm">

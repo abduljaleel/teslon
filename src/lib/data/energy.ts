@@ -1,7 +1,7 @@
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type SiteType = "office" | "factory" | "datacenter" | "retail";
-export type SourceType = "grid" | "solar" | "battery";
+export type SourceType = "grid" | "solar" | "battery" | "generator";
 export type AlertSeverity = "info" | "warning" | "critical";
 export type AlertType = "anomaly" | "threshold" | "forecast";
 export type Difficulty = "easy" | "medium" | "hard";

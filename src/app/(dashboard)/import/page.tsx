@@ -57,6 +57,7 @@ export default function ImportPage() {
   const [uploadSiteId, setUploadSiteId] = useState("");
   const [csvText, setCsvText] = useState("");
   const [fileName, setFileName] = useState("");
+  const [dragging, setDragging] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState<{
     ok: boolean;
@@ -303,7 +304,24 @@ export default function ImportPage() {
                 </Select>
               )}
             </div>
-            <div className="border-2 border-dashed rounded-lg p-8 text-center">
+            <div
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                dragging ? "border-primary bg-primary/5" : ""
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragging(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                void handleFile(e.dataTransfer.files?.[0]);
+              }}
+            >
               <p className="text-sm text-muted-foreground mb-2">
                 Drag and drop your CSV file here, or click to browse
               </p>
@@ -425,6 +443,11 @@ export default function ImportPage() {
                   onValueChange={(v: string | null) =>
                     setManualSource((v as SourceType) ?? "")
                   }
+                  items={[
+                    { value: "grid", label: "Grid" },
+                    { value: "solar", label: "Solar" },
+                    { value: "battery", label: "Battery" },
+                  ]}
                 >
                   <SelectTrigger id="manual-source">
                     <SelectValue placeholder="Select source" />
